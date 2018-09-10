@@ -6,6 +6,7 @@
 
 #include <SFML/Graphics.hpp>
 #include "Vertex.h"
+#include "vector"
 
 namespace rf {
     class Triangle : public sf::ConvexShape {
@@ -15,12 +16,18 @@ namespace rf {
 
         float circumradius;
 
-        sf::Color color;
+        bool colorSet = false;
 
-        Triangle(Vertex one, Vertex two, Vertex three);
+        std::vector<Vertex *> pointsInside;
 
-        void updateValues();
+        Triangle(Vertex one, Vertex two, Vertex three, bool calcPointsInside = true);
+
+        void updateValues(bool calcPointsInside);
+
+        void calcPointsInside();
 
         bool operator==(const Triangle& other) const;
+
+        float area();
     };
 }

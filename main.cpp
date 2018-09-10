@@ -20,7 +20,7 @@ void triangalize(std::vector<Triangle *> &triangles, std::mutex &trianglesMutex,
             if (p1 != p0) {
                 for (auto p2 : innerPoints) {
                     if (p2 != p0 && p2 != p1) {
-                        auto t = new Triangle(*p0, *p1, *p2);
+                        auto t = new Triangle(*p0, *p1, *p2, false);
                         bool good = true;
 
                         for (auto other : triangles) {
@@ -34,6 +34,8 @@ void triangalize(std::vector<Triangle *> &triangles, std::mutex &trianglesMutex,
                         }
                         if (good) {
                             t->setFillColor(sf::Color(255, 0, 0));
+
+                            t->calcPointsInside();
 
                             trianglesMutex.lock();
                             triangles.push_back(t);
@@ -66,11 +68,14 @@ int main() {
     std::vector<Vertex *> points;
     std::mutex pointsMutex;
 
-    unsigned int width = 800, height = 800;
-    int sectorWidth = 400, sectorHeight = 400;
+    sf::Image image;
+    image.loadFromFile("/home/raphael/Pictures/Raph.jpg");
+
+    unsigned int width = image.getSize().x, height = image.getSize().y;
+    int sectorWidth = width / 4, sectorHeight = height / 4;
 
     srand(static_cast<unsigned int>(time(nullptr)));
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 400; i++) {
         points.push_back(new Vertex(rand() % width, rand() % height));
     }
 
@@ -104,9 +109,6 @@ int main() {
                             settings);
     window.setFramerateLimit(30);
 
-    sf::Image image;
-    image.loadFromFile("/home/raphael/Pictures/Raph.jpg");
-
     bool didPostDone = false;
 
     bool drawCircles = false;
@@ -133,12 +135,27 @@ int main() {
 
         pointsMutex.lock();
         trianglesMutex.lock();
+
         for (auto t : triangles) {
             t->setOutlineThickness(drawOutlines);
             t->setOutlineColor(sf::Color(0, 0, 255, static_cast<sf::Uint8>(drawOutlines * 255)));
         }
 
         for (auto t : triangles) {
+            if (!(t->colorSet)) {
+                long sumR = 0;
+                long sumG = 0;
+                long sumB = 0;
+                for (auto p: t->pointsInside) {
+                    sf::Color c = image.getPixel(static_cast<unsigned int>(p->x), static_cast<unsigned int>(p->y));
+                    sumR += static_cast<int>(pow(c.r, 2));
+                    sumG += static_cast<int>(pow(c.g, 2));
+                    sumB += static_cast<int>(pow(c.b, 2));
+                }
+                t->setFillColor(sf::Color(static_cast<sf::Uint8>(sqrt(sumR)), static_cast<sf::Uint8>(sqrt(sumG)),
+                                          static_cast<sf::Uint8>(sqrt(sumB))));
+                t->colorSet = true;
+            }
             window.draw(*t);
         }
 
@@ -182,7 +199,6 @@ int main() {
                             threadsDone.size() - 1);
             didPostDone = true;
         }
-
 
         pointsMutex.unlock();
         trianglesMutex.unlock();
