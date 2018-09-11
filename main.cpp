@@ -7,7 +7,7 @@
 #include <mutex>
 #include "addons.h"
 #include <cstdlib>
-#include <math.h>
+#include <cmath>
 
 using namespace rf;
 
@@ -16,42 +16,44 @@ void triangalize(std::vector<Triangle *> &triangles, std::mutex &trianglesMutex,
                  std::vector<Vertex *> &points, std::mutex &pointsMutex, std::vector<bool> &threadsDone,
                  std::mutex &threadsDoneMutex, long threadIndex) {
     for (auto p0 : innerPoints) {
-        for (auto p1 : innerPoints) {
-            if (p1 != p0) {
-                for (auto p2 : innerPoints) {
-                    if (p2 != p0 && p2 != p1) {
-                        auto t = new Triangle(*p0, *p1, *p2, false);
-                        bool good = true;
+        if (!(p0->completed())) {
+            for (auto p1 : innerPoints) {
+                if (p1 != p0 && !p1->completed()) {
+                    for (auto p2 : innerPoints) {
+                        if (p2 != p0 && p2 != p1 && !p2->completed()) {
+                            auto t = new Triangle(*p0, *p1, *p2, false);
+                            bool good = true;
 
-                        for (auto other : triangles) {
-                            good &= !(*other == *t);
-                        }
-
-                        if (good) {
-                            for (auto other : points) {
-                                good &= t->circumradius <= t->circumcenter.dist(*other);
+                            for (auto other : triangles) {
+                                good &= !(*other == *t);
                             }
-                        }
-                        if (good) {
-                            t->setFillColor(sf::Color(255, 0, 0));
 
-                            t->calcPointsInside();
+                            if (good) {
+                                for (auto other : points) {
+                                    good &= t->circumradius <= t->circumcenter.dist(*other);
+                                }
+                            }
+                            if (good) {
+                                t->setFillColor(sf::Color(255, 0, 0));
 
-                            trianglesMutex.lock();
-                            triangles.push_back(t);
-                            trianglesMutex.unlock();
+                                t->calcPointsInside();
 
-                            float angle0 = angle(t->getPoint(1), t->getPoint(0), t->getPoint(2));
-                            float angle1 = angle(t->getPoint(0), t->getPoint(1), t->getPoint(2));
-                            float angle2 = angle(t->getPoint(1), t->getPoint(2), t->getPoint(0));
+                                trianglesMutex.lock();
+                                triangles.push_back(t);
+                                trianglesMutex.unlock();
 
-                            pointsMutex.lock();
-                            p0->angle += angle0;
-                            p1->angle += angle1;
-                            p2->angle += angle2;
-                            pointsMutex.unlock();
-                        } else {
-                            delete t;
+                                float angle0 = angle(t->getPoint(1), t->getPoint(0), t->getPoint(2));
+                                float angle1 = angle(t->getPoint(0), t->getPoint(1), t->getPoint(2));
+                                float angle2 = angle(t->getPoint(1), t->getPoint(2), t->getPoint(0));
+
+                                pointsMutex.lock();
+                                p0->angle += angle0;
+                                p1->angle += angle1;
+                                p2->angle += angle2;
+                                pointsMutex.unlock();
+                            } else {
+                                delete t;
+                            }
                         }
                     }
                 }
@@ -64,6 +66,38 @@ void triangalize(std::vector<Triangle *> &triangles, std::mutex &trianglesMutex,
     threadsDoneMutex.unlock();
 }
 
+void findEdges(std::vector<Vertex *> &points, sf::Image &image) {
+    int kernel[3][3] = {
+            {-1, -1, -1},
+            {-1, 8,  -1},
+            {-1, -1, -1}
+    };
+    float edges[image.getSize().y][image.getSize().x];
+    for (int row = 1; row < image.getSize().y - 1; row++) {
+        for (int col = 1; col < image.getSize().x - 1; col++) {
+            float accumulation = 0;
+            for (int i = -1; i <= 1; i++) {
+                for (int j = -1; j <= 1; j++) {
+                    sf::Color c = image.getPixel(static_cast<unsigned int>(col + i),
+                                                 static_cast<unsigned int>(row + j));
+                    float k = (c.r + c.g + c.b) / 3.0f;
+                    accumulation += k * kernel[1 + i][1 + j];
+                }
+            }
+            edges[row][col] += accumulation;
+        }
+    }
+
+    for (int row = 0; row < sizeof(edges) / sizeof(*edges); ++row) {
+        for (int col = 0; col < sizeof(edges[row]) / sizeof(*(edges[row])); ++col) {
+            if (abs(edges[row][col]) > 40 && rand() % 1000 == 1) // Play around with these numbers
+                points.push_back(new Vertex(col, row));
+        }
+    }
+
+    std::cout << points.size() << std::endl;
+}
+
 int main() {
     std::vector<Vertex *> points;
     std::mutex pointsMutex;
@@ -72,11 +106,23 @@ int main() {
     image.loadFromFile("/home/raphael/Pictures/Raph.jpg");
 
     unsigned int width = image.getSize().x, height = image.getSize().y;
-    int sectorWidth = width / 4, sectorHeight = height / 4;
+    int sectorWidth = width / 2, sectorHeight = height / 2;
 
     srand(static_cast<unsigned int>(time(nullptr)));
-    for (int i = 0; i < 400; i++) {
-        points.push_back(new Vertex(rand() % width, rand() % height));
+
+    findEdges(points, image);
+
+    for (int i = 0; i < width; i++) {
+        if (i % 50 == 0) {
+            points.push_back(new Vertex(i, 0));
+            points.push_back(new Vertex(i, height - 1));
+        }
+    }
+    for (int i = 0; i < height; i++) {
+        if (i % 50 == 0) {
+            points.push_back(new Vertex(0, i));
+            points.push_back(new Vertex(width - 1, i));
+        }
     }
 
     std::vector<Triangle *> triangles;
@@ -152,6 +198,9 @@ int main() {
                     sumG += static_cast<int>(pow(c.g, 2));
                     sumB += static_cast<int>(pow(c.b, 2));
                 }
+                sumR /= t->pointsInside.size();
+                sumG /= t->pointsInside.size();
+                sumB /= t->pointsInside.size();
                 t->setFillColor(sf::Color(static_cast<sf::Uint8>(sqrt(sumR)), static_cast<sf::Uint8>(sqrt(sumG)),
                                           static_cast<sf::Uint8>(sqrt(sumB))));
                 t->colorSet = true;
@@ -165,7 +214,7 @@ int main() {
                 shape.setPosition(*p - Vertex(3, 3));
                 shape.setFillColor(sf::Color(0, 255, 0));
 
-                if (p->angle < 2 * M_PI - 0.1) {
+                if (!(p->completed())) {
                     shape.setFillColor(sf::Color(100, 100, 100));
                 }
 
@@ -191,7 +240,7 @@ int main() {
         if (done && !didPostDone) {
             auto unusedPoints = new std::vector<Vertex *>;
             for (auto point : points)
-                if (point->angle < M_PI * 2 - 0.1)
+                if (!(point->completed()))
                     unusedPoints->push_back(point);
 
             new std::thread(triangalize, std::ref(triangles), std::ref(trianglesMutex), std::ref(*unusedPoints),

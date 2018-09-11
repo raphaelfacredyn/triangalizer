@@ -6,6 +6,8 @@ find_package( Threads )
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(SOURCE_FILES main.cpp)
+
 add_executable(Triangalizer main.cpp Triangle.cpp Triangle.h PointLine.cpp PointLine.h SlopeLine.cpp SlopeLine.h addons.cpp addons.h Vertex.cpp Vertex.h)
 
 target_link_libraries(Triangalizer sfml-graphics sfml-audio)
